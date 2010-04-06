@@ -19,11 +19,46 @@ struct sField {
   int size;
 };
 
-std::string getClassName(std::string val)
+enum ASSOC_TYPE { NONE, HAS_ONE, HAS_MANY };
+
+struct sAssoc {
+  std::string field_name;
+  std::string table_name;
+  ASSOC_TYPE type;
+};
+
+struct sTable {
+  std::string name;
+  std::vector<sField> fields;
+  std::vector<sAssoc> assocs;
+};
+
+
+std::vector<std::string> table_names;
+std::map<std::string, sTable> tables;
+
+
+std::string getTableNameFromClassName(std::string val) // translates User => users, Stop => stops
+{
+  std::string cc = val;
+  cc[0] = tolower(cc[0]);
+  if (cc.size() > 2 && cc[cc.size()-1] != 's') cc.push_back('s');
+  for (int i = 0 ; i < (int)cc.size() ; i++)
+  {
+    if (cc[i] >= 65 && cc[i] <= 90)
+    {
+      cc[i] = tolower(cc[i]);
+      cc.insert(i, "_");
+    }
+  }
+  return cc;
+}
+
+std::string getClassNameFromTableName(std::string val) // translates users => User, stops => Stop
 {
   std::string cc = val;
   cc[0] = toupper(cc[0]);
-  if (cc != "s" && cc[cc.size()-1] == 's' && cc[cc.size()-2] != 's') cc.resize(cc.size()-1);
+  if (cc.size() > 2 && cc[cc.size()-1] == 's' && cc[cc.size()-2] != 's') cc.resize(cc.size()-1);
   for (int i = 0 ; i < (int)cc.size() ; i++)
   {
     if (cc[i] == '_')
@@ -35,8 +70,11 @@ std::string getClassName(std::string val)
   return cc;
 }
 
-std::vector<std::string> table_names;
-std::map<std::string, std::vector<sField> > tables;
+std::string pluralize(std::string val)
+{
+  if (val.size() > 2 && val[val.size()-1] != 's') val.push_back('s');
+  return val;
+}
 
 int main(int argc, char **argv, char **envp)
 {
@@ -64,19 +102,21 @@ int main(int argc, char **argv, char **envp)
   num_rows = mysql_num_rows(res);
   printf("%d tables\n", num_rows);
   
+  system("cd models ; rm *");
+  
   while ((row = mysql_fetch_row(res)))
+  {
+    tables[row[0]].name = row[0];
     table_names.push_back(row[0]);
+  }
   mysql_free_result(res);
   
   for (std::vector<std::string>::iterator it = table_names.begin() ; it != table_names.end() ; it++)
   {
     std::string table_name = (*it).c_str();
-    std::string class_name = getClassName(table_name);
-    
-    if (table_name != "stops" && table_name != "locations") continue;
+    std::string class_name = getClassNameFromTableName(table_name);
     
     sprintf(query, "DESCRIBE %s", table_name.c_str());
-    printf("%s\n", (*it).c_str());
     if (mysql_query(&mysql, query)!=0) { printf("mysql_query error (%s)\n", mysql_error(&mysql)); return 0; }
     
 	  res = mysql_store_result(&mysql);
@@ -103,66 +143,83 @@ int main(int argc, char **argv, char **envp)
         field.size = 50;
       }
       
-      tables[(*it).c_str()].push_back(field);
+      tables[(*it).c_str()].fields.push_back(field);
+      
+      if (field.name.size() > 4 && field.name[field.name.size()-3] == '_' && field.name[field.name.size()-2] == 'i' && field.name[field.name.size()-1] == 'd')
+      {
+        std::string join_table_name = field.name;
+        join_table_name.resize(join_table_name.size() - 3);
+        join_table_name = pluralize(join_table_name);
+        
+        if (tables.find(join_table_name) != tables.end())
+        {
+          sAssoc assoc;
+          assoc.field_name = field.name;
+          assoc.type = HAS_ONE;
+          assoc.table_name = join_table_name;
+          tables[(*it).c_str()].assocs.push_back(assoc);
+          
+          assoc.field_name = field.name;
+          assoc.type = HAS_MANY;
+          assoc.table_name = (*it).c_str();
+          tables[join_table_name].assocs.push_back(assoc);
+        }
+        //else
+        //  printf("WARNING %s.%s found but table %s does not exist\n", table_name.c_str(), field.name.c_str(), join_table_name.c_str());
+      }
     }
+    mysql_free_result(res);
+  }
+  
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  
+  for (std::vector<std::string>::iterator it = table_names.begin() ; it != table_names.end() ; it++)
+  {
+    std::string table_name = (*it).c_str();
+    std::string class_name = getClassNameFromTableName(table_name);
     
     sprintf(query, "models/%s.h", table_name.c_str());
     fp = fopen(query, "w");
     fprintf(fp, "@interface %s {\n  int id;\n", class_name.c_str());
     
-    for (unsigned int i = 0 ; i < tables[table_name].size() ; i++)
+    for (unsigned int i = 0 ; i < tables[table_name].fields.size() ; i++)
     {
-      sField *f = &tables[table_name][i];
+      sField *f = &tables[table_name].fields[i];
       fprintf(fp, "  %s %s%s;\n", f->type.c_str(), f->name.c_str(), f->size==0?"":"[50]");
     }
     
     fprintf(fp, "}\n");
     
-    for (unsigned int i = 0 ; i < tables[table_name].size() ; i++)
+    for (unsigned int i = 0 ; i < tables[table_name].assocs.size() ; i++)
     {
-      sField *f = &tables[table_name][i];
-      if (f->name.size() > 4 && f->name[f->name.size()-3] == '_' && f->name[f->name.size()-2] == 'i' && f->name[f->name.size()-1] == 'd')
-      {
-        std::string join_table_name = f->name;
-        join_table_name.resize(join_table_name.size()-3);
-        join_table_name += 's';
-        if (tables.find(join_table_name) != tables.end())
-        {
-          fprintf(fp, "-(id)get%s;\n", getClassName(join_table_name).c_str());
-        }
-      }
+      sAssoc *a = &tables[table_name].assocs[i];
+      if (a->type == HAS_ONE)
+        fprintf(fp, "-(id)get%s;\n", getClassNameFromTableName(a->table_name).c_str());
+      else if (a->type == HAS_MANY)
+        fprintf(fp, "-(id)get%s;\n", pluralize(getClassNameFromTableName(a->table_name)).c_str());
     }
     
     fprintf(fp, "\n@end");
     fclose(fp);
     
-///////////////////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     
     sprintf(query, "models/%s.m", table_name.c_str());
     fp = fopen(query, "w");
     fprintf(fp, "#include \"%s.h\"\n@implementation %s\n", table_name.c_str(), class_name.c_str());
-    
-    for (unsigned int i = 0 ; i < tables[table_name].size() ; i++)
+  
+    for (unsigned int i = 0 ; i < tables[table_name].assocs.size() ; i++)
     {
-      sField *f = &tables[table_name][i];
-      if (f->name.size() > 4 && f->name[f->name.size()-3] == '_' && f->name[f->name.size()-2] == 'i' && f->name[f->name.size()-1] == 'd')
-      {
-        std::string join_table_name = f->name;
-        join_table_name.resize(join_table_name.size()-3);
-        join_table_name += 's';
-        if (tables.find(join_table_name) != tables.end())
-        {
-          fprintf(fp, "-(id)get%s {\n  \n};\n", getClassName(join_table_name).c_str());
-        }
-      }
+      sAssoc *a = &tables[table_name].assocs[i];
+      if (a->type == HAS_ONE)
+        fprintf(fp, "-(id)get%s {\n  \n};\n", getClassNameFromTableName(a->table_name).c_str());
+      else if (a->type == HAS_MANY)
+        fprintf(fp, "-(id)get%s {\n  \n};\n", pluralize(getClassNameFromTableName(a->table_name)).c_str());
     }
     
     fprintf(fp, "\n@end");
     fclose(fp);
-    
-    mysql_free_result(res);
   }
-  
   
   system("cd models ; g++ *.m -c");
   

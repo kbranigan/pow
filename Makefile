@@ -3,9 +3,6 @@ debug= -O3
 
 all: pow
 
-OBJECTS= main.o \
-	mongoose.o
-
 %.o: %.c
 	cc $(debug) $(mysql) -Wall $*.c -c -o $@
 
@@ -15,8 +12,12 @@ OBJECTS= main.o \
 mongoose.o: 
 	cc $(debug) -std=c99 -D_POSIX_SOURCE -D_BSD_SOURCE -c mongoose.c -o mongoose.o
 
-models:
-	g++ models/*.m
+models: make_models.o
+	g++ $(debug) -Wall make_models.o -o make_models $(mysql) -lmysqlclient -L/usr/local/mysql/lib/mysql
+
+OBJECTS= pow.o \
+	models/locations.o \
+	mongoose.o
 
 pow: $(OBJECTS)
 	g++ $(debug) -Wall $(OBJECTS) -o pow $(mysql) -lmysqlclient -L/usr/local/mysql/lib/mysql

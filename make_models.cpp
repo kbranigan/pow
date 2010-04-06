@@ -70,8 +70,21 @@ std::string getClassNameFromTableName(std::string val) // translates users => Us
   return cc;
 }
 
+std::map<std::string, std::string> pluralize_exceptions;
+
+void populate_pluralize_exceptions()
+{
+  pluralize_exceptions["branch"] = "branches";
+  pluralize_exceptions["vertex"] = "vertices";
+}
+
 std::string pluralize(std::string val)
 {
+  if (pluralize_exceptions.size() == 0)
+    populate_pluralize_exceptions();
+  
+  if (pluralize_exceptions.find(val) != pluralize_exceptions.end()) return pluralize_exceptions[val];
+  
   if (val.size() > 2 && val[val.size()-1] != 's') val.push_back('s');
   return val;
 }
@@ -173,10 +186,21 @@ int main(int argc, char **argv, char **envp)
   
   ///////////////////////////////////////////////////////////////////////////////////////////////
   
+  sprintf(query, "models.h");
+  fp = fopen(query, "w");
+  for (std::vector<std::string>::iterator it = table_names.begin() ; it != table_names.end() ; it++)
+  {
+    std::string table_name = (*it).c_str();
+    fprintf(fp, "#include \"models/%s.h\"\n", table_name.c_str());
+  }
+  fclose(fp);
+  
   for (std::vector<std::string>::iterator it = table_names.begin() ; it != table_names.end() ; it++)
   {
     std::string table_name = (*it).c_str();
     std::string class_name = getClassNameFromTableName(table_name);
+    
+    if (table_name != "stops" && table_name != "locations" && table_name != "routes" && table_name != "shapes" && table_name != "schedules" && table_name != "services" && table_name != "station_edges") continue;
     
     sprintf(query, "models/%s.h", table_name.c_str());
     fp = fopen(query, "w");

@@ -1,2 +1,1 @@
-Basically, I'm just fiddling with making a C framework, I have it auto discovering a mysql db and generating obj-c models for those tables. 
-That's all, I want to add controllers, a router and intelligent basic scaffolding.  We'll see if I actually do it.
+Basically, I'm just fiddling with making a C datastore, I have it auto discovering a mysql db and generating C models and the code for those tables. 

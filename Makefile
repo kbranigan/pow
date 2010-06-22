@@ -1,7 +1,7 @@
 mysql= -DUSING_MYSQL -I/usr/local/mysql/include/mysql -I/usr/include/mysql
 debug= -g
 
-all: pow
+all: models
 
 %.o: %.c
 	cc $(debug) $(mysql) -Wall $*.c -c -o $@

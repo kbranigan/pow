@@ -4,6 +4,13 @@
 #include <vector>
 #include <mysql.h>
 
+/////////////////////////////
+std::string database = "ttc";  // better be able to log in as root with no password
+/////////////////////////////
+std::string location_of_mysql_h = "/usr/local/mysql/include/mysql";
+std::string location_of_libmysqlclient = "/usr/local/mysql/lib/mysql";
+/////////////////////////////
+
 MYSQL mysql;
 MYSQL_ROW row;
 MYSQL_RES * res;
@@ -33,12 +40,10 @@ struct sTable {
   std::vector<sAssoc> assocs;
 };
 
-
 std::vector<std::string> table_names;
 std::map<std::string, sTable> tables;
 
-
-std::string getTableNameFromClassName(std::string val) // translates User => users, Stop => stops
+/*std::string getTableNameFromClassName(std::string val) // translates User => users, Stop => stops
 {
   std::string cc = val;
   cc[0] = tolower(cc[0]);
@@ -52,7 +57,7 @@ std::string getTableNameFromClassName(std::string val) // translates User => use
     }
   }
   return cc;
-}
+}*/
 
 std::string getClassNameFromTableName(std::string val) // translates users => User, stops => Stop
 {
@@ -91,10 +96,10 @@ std::string pluralize(std::string val)
 
 int main(int argc, char **argv, char **envp)
 {
-  std::string database = "ttc";
-  
-  if ((mysql_init(&mysql) == NULL)) { printf("mysql_init error\n"); return 0; }
-  if (!mysql_real_connect(&mysql, "localhost", "root", "", database.c_str(), 0, NULL, 0)) { printf("mysql_real_connect error (%s)\n", mysql_error(&mysql)); return 0; }
+  if ((mysql_init(&mysql) == NULL))
+    return printf("mysql_init error\n");
+  if (!mysql_real_connect(&mysql, "localhost", "root", "", database.c_str(), 0, NULL, 0))
+    return printf("mysql_real_connect error (%s)\n", mysql_error(&mysql));
   
   if (database == "")
   {
@@ -113,9 +118,10 @@ int main(int argc, char **argv, char **envp)
   
 	res = mysql_store_result(&mysql);
   num_rows = mysql_num_rows(res);
-  printf("%d tables\n", num_rows);
+  printf("%d tables in '%s'\n", num_rows, database.c_str());
   
-  system("cd models ; rm *");
+  sprintf(query, "mkdir -p %s_models ; cd %s_models ; rm *", database.c_str(), database.c_str());
+  system(query);
   
   while ((row = mysql_fetch_row(res)))
   {
@@ -191,7 +197,9 @@ int main(int argc, char **argv, char **envp)
   for (std::vector<std::string>::iterator it = table_names.begin() ; it != table_names.end() ; it++)
   {
     std::string table_name = (*it).c_str();
-    fprintf(fp, "#include \"models/%s.h\"\n", table_name.c_str());
+    if (table_name != "routes") continue; // kbfu
+    
+    fprintf(fp, "#include \"%s_models/%s.h\"\n", database.c_str(), table_name.c_str());
   }
   fclose(fp);
   
@@ -201,10 +209,11 @@ int main(int argc, char **argv, char **envp)
     std::string class_name = getClassNameFromTableName(table_name);
     
     if (table_name != "stops" && table_name != "locations" && table_name != "routes" && table_name != "shapes" && table_name != "schedules" && table_name != "services" && table_name != "station_edges") continue;
+    if (table_name != "routes") continue; // kbfu
     
-    sprintf(query, "models/%s.h", table_name.c_str());
+    sprintf(query, "%s_models/%s.h", database.c_str(), table_name.c_str());
     fp = fopen(query, "w");
-    fprintf(fp, "@interface %s {\n  int id;\n", class_name.c_str());
+    fprintf(fp, "\n#ifndef POW_%s_%s_H\n#define POW_%s_%s_H\n\n/* This file was generated, so it's probably best not to expect edits to stick */\n\nstruct %s {\n  int id;\n", database.c_str(), table_name.c_str(), database.c_str(), table_name.c_str(), class_name.c_str());
     
     for (unsigned int i = 0 ; i < tables[table_name].fields.size() ; i++)
     {
@@ -212,40 +221,92 @@ int main(int argc, char **argv, char **envp)
       fprintf(fp, "  %s %s%s;\n", f->type.c_str(), f->name.c_str(), f->size==0?"":"[50]");
     }
     
-    fprintf(fp, "}\n");
+    fprintf(fp, "};\n");
     
-    for (unsigned int i = 0 ; i < tables[table_name].assocs.size() ; i++)
+    /*for (unsigned int i = 0 ; i < tables[table_name].assocs.size() ; i++)
     {
       sAssoc *a = &tables[table_name].assocs[i];
       if (a->type == HAS_ONE)
-        fprintf(fp, "-(id)get%s;\n", getClassNameFromTableName(a->table_name).c_str());
+        fprintf(fp, "struct %s get%s();\n", a->table_name.c_str(), getClassNameFromTableName(a->table_name).c_str());
       else if (a->type == HAS_MANY)
-        fprintf(fp, "-(id)get%s;\n", pluralize(getClassNameFromTableName(a->table_name)).c_str());
-    }
+        fprintf(fp, "struct *%s get%s();\n", a->table_name.c_str(), pluralize(getClassNameFromTableName(a->table_name)).c_str());
+    }*/
     
-    fprintf(fp, "\n@end");
+    fprintf(fp, "\nextern struct %s *%s;\nextern int num_%s;\n\nextern int load_%s();\n\n#endif", class_name.c_str(), table_name.c_str(), table_name.c_str(), table_name.c_str());
     fclose(fp);
     
     ///////////////////////////////////////////////////////////////////////////////////////////////
     
-    sprintf(query, "models/%s.m", table_name.c_str());
+    sprintf(query, "%s_models/%s.c", database.c_str(), table_name.c_str());
     fp = fopen(query, "w");
-    fprintf(fp, "#include \"%s.h\"\n@implementation %s\n", table_name.c_str(), class_name.c_str());
-  
-    for (unsigned int i = 0 ; i < tables[table_name].assocs.size() ; i++)
+    fprintf(fp, "\n#include \"%s.h\"\n"
+                "#include <mysql.h>\n"
+                "#include <stdlib.h>\n"
+                "#include <string.h>\n"
+                "#include <stdio.h>\n", table_name.c_str());
+    
+    /*for (unsigned int i = 0 ; i < tables[table_name].assocs.size() ; i++)
     {
       sAssoc *a = &tables[table_name].assocs[i];
       if (a->type == HAS_ONE)
         fprintf(fp, "-(id)get%s {\n  \n};\n", getClassNameFromTableName(a->table_name).c_str());
       else if (a->type == HAS_MANY)
         fprintf(fp, "-(id)get%s {\n  \n};\n", pluralize(getClassNameFromTableName(a->table_name)).c_str());
-    }
+    }*/
     
-    fprintf(fp, "\n@end");
+    fprintf(fp, "\n/* This file was generated, so it's probably best not to expect edits to stick */\n\n"
+                "struct %s *%s = 0;\nint num_%s = 0;\n\n",  class_name.c_str(), table_name.c_str(), table_name.c_str());
+    
+    fprintf(fp, "int load_%s()\n{\n", table_name.c_str());
+    
+    fprintf(fp, "  MYSQL mysql;\n" 
+                "  MYSQL_ROW row;\n" 
+                "  MYSQL_RES * res;\n" 
+                "  char query[500];\n\n");
+    
+    fprintf(fp, "  if ((mysql_init(&mysql) == NULL))\n"
+                "    return printf(\"mysql_init error\\n\");\n"
+                "  if (!mysql_real_connect(&mysql, \"localhost\", \"root\", \"\", \"%s\", 0, NULL, 0))\n"
+                "    return printf(\"mysql_real_connect error (%%s)\\n\", mysql_error(&mysql));\n\n", database.c_str());
+    
+    fprintf(fp, "  if (mysql_query(&mysql, \"SELECT id, ");
+    for (unsigned int i = 0 ; i < tables[table_name].fields.size() ; i++)
+    {
+      sField *f = &tables[table_name].fields[i];
+      fprintf(fp, "%s%s", f->name.c_str(), (i==tables[table_name].fields.size()-1)?"":", ");
+    }
+    fprintf(fp, " FROM %s\")==0)\n", table_name.c_str());
+    
+    fprintf(fp, "  {\n"
+  	            "    res = mysql_store_result(&mysql);\n"
+                "    num_%s = mysql_num_rows(res);\n"
+                "    %s = (struct %s*)realloc(%s, sizeof(%s)*num_%s);\n", table_name.c_str(), table_name.c_str(), class_name.c_str(), table_name.c_str(), class_name.c_str(), table_name.c_str());
+    
+    fprintf(fp, "    int i = 0;\n"
+                "    while((row = mysql_fetch_row(res)))\n"
+                "    {\n"
+                "      %s[i].id = atoi(row[0]);\n", table_name.c_str());
+    for (unsigned int i = 0 ; i < tables[table_name].fields.size() ; i++)
+    {
+      sField *f = &tables[table_name].fields[i];
+      if (f->type == "int")
+        fprintf(fp, "      if (row[%d] != NULL) %s[i].%s = atoi(row[%d]);\n", i+1, table_name.c_str(), f->name.c_str(), i+1);
+      else if (f->type == "float")
+        fprintf(fp, "      if (row[%d] != NULL) %s[i].%s = atof(row[%d]);\n", i+1, table_name.c_str(), f->name.c_str(), i+1);
+      else if (f->type == "char")
+        fprintf(fp, "      if (row[%d] != NULL) strncpy(%s[i].%s, row[%d], sizeof(%s[i].%s));\n", i+1, table_name.c_str(), f->name.c_str(), i+1, table_name.c_str(), f->name.c_str());
+    }
+    fprintf(fp, "      i++;\n"
+                "    }\n\n"
+                "    mysql_free_result(res);\n"
+                "  }\n");
+    
+    fprintf(fp, "}\n");
     fclose(fp);
   }
   
-  system("cd models ; g++ *.m -c");
+  sprintf(query, "cd %s_models ; g++ *.c -c -I%s", database.c_str(), location_of_mysql_h.c_str());
+  system(query);
   
   printf("\ndone\n");
   

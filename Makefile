@@ -1,5 +1,5 @@
 mysql= -DUSING_MYSQL -I/usr/local/mysql/include/mysql -I/usr/include/mysql
-debug= -O3
+debug= -g
 
 all: pow
 
@@ -14,6 +14,7 @@ mongoose.o:
 
 models: make_models.o
 	g++ $(debug) -Wall make_models.o -o make_models $(mysql) -lmysqlclient -L/usr/local/mysql/lib/mysql
+	./make_models
 
 OBJECTS= pow.o \
 	models/locations.o \

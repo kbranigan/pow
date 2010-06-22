@@ -5,7 +5,7 @@
 #include <mysql.h>
 
 /////////////////////////////
-std::string database = "lcbo";  // better be able to log in as root with no password
+std::string database = "ttc";  // better be able to log in as root with no password
 /////////////////////////////
 std::vector<std::string> only_tables;
 std::map<std::string, std::string> pluralize_exceptions;
@@ -194,6 +194,11 @@ int main(int argc, char **argv, char **envp)
         field.type = "float";
         field.size = 0;
       }
+      else if (row[1][0] == 'v' && strlen(row[1]) > 8)
+      {
+        field.type = "char";
+        field.size = atoi(&row[1][8]);
+      }
       else if (strcmp(row[1],"text")==0)
       {
         field.type = "char";
@@ -202,7 +207,7 @@ int main(int argc, char **argv, char **envp)
       else if (strcmp(row[1],"datetime")==0)
       {
         field.type = "char";
-        field.size = 19;
+        field.size = 20;
       }
       else
       {
@@ -253,7 +258,8 @@ int main(int argc, char **argv, char **envp)
         MYSQL_RES *res_temp = mysql_store_result(&mysql);
         MYSQL_ROW row_temp = mysql_fetch_row(res_temp);
         
-        if (row_temp[0] != NULL) field->size = atoi(row_temp[0]);
+        if (row_temp[0] != NULL)
+          field->size = atoi(row_temp[0]);
         else
         {
           printf(" table '%s' has no rows, %s undefined length (text field - assuming 100 chars)\n", table->name.c_str(), field->name.c_str());
@@ -280,7 +286,6 @@ int main(int argc, char **argv, char **envp)
     if (invalid_table(table_name)) continue;
     
     fprintf(fp, "#include \"%s_models/%s.h\"\n", database.c_str(), table_name.c_str());
-    //fprintf(fp, "#include \"%s_models/%s_get.h\"\n", database.c_str(), table_name.c_str());
   }
   fclose(fp);
   
@@ -293,7 +298,11 @@ int main(int argc, char **argv, char **envp)
     
     sprintf(query, "%s_models/%s.h", database.c_str(), table_name.c_str());
     fp = fopen(query, "w");
-    fprintf(fp, "\n#ifndef POW_%s_%s_H\n#define POW_%s_%s_H\n\n"
+    fprintf(fp, "\n#ifndef POW_%s_%s_H\n"
+                "#define POW_%s_%s_H\n\n"
+                "#ifdef __cplusplus\n"
+                "extern \"C\" {\n"
+                "#endif\n\n"
                 "/* This file was generated, so it's probably best not to expect edits to stick */\n\n"
                 "struct %s {\n  int id;\n", database.c_str(), table_name.c_str(), database.c_str(), table_name.c_str(), class_name.c_str());
     
@@ -325,7 +334,10 @@ int main(int argc, char **argv, char **envp)
                 "extern int num_%s;\n\n"
                 "extern int load_%s();\n"
                 "extern void %s_json_get_request(struct mg_connection *conn, const struct mg_request_info *ri, void *data);\n\n"
-                "#endif", class_name.c_str(), table_name.c_str(), table_name.c_str(), table_name.c_str(), table_name.c_str());
+                "#ifdef __cplusplus\n"
+                "}\n"
+                "#endif\n\n"
+                "#endif\n", class_name.c_str(), table_name.c_str(), table_name.c_str(), table_name.c_str(), table_name.c_str());
     fclose(fp);
     
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -348,7 +360,7 @@ int main(int argc, char **argv, char **envp)
         fprintf(fp, "-(id)get%s {\n  \n};\n", pluralize(getClassNameFromTableName(a->table_name)).c_str());
     }*/
     
-    fprintf(fp, "\n/* This file was generated, so it's probably best not to expect edits to stick */\n\n"
+    fprintf(fp, "/* This file was generated, so it's probably best not to expect edits to stick */\n\n"
                 "struct %s *%s = 0;\nint num_%s = 0;\n\n",  class_name.c_str(), table_name.c_str(), table_name.c_str());
     
     fprintf(fp, "int load_%s()\n{\n", table_name.c_str());
@@ -356,7 +368,9 @@ int main(int argc, char **argv, char **envp)
     fprintf(fp, "  MYSQL mysql;\n" 
                 "  MYSQL_ROW row;\n" 
                 "  MYSQL_RES * res;\n" 
-                "  char query[500];\n  \n");
+                "  char query[500];\n"
+                "  int num_rows = 0;\n"
+                "  \n");
     
     fprintf(fp, "  if ((mysql_init(&mysql) == NULL))\n"
                 "    return printf(\"mysql_init error\\n\");\n"
@@ -383,7 +397,11 @@ int main(int argc, char **argv, char **envp)
     
     fprintf(fp, "  {\n"
   	            "    res = mysql_store_result(&mysql);\n"
-                "    %s = (struct %s*)realloc(%s, sizeof(%s)*num_%s);\n", table_name.c_str(), class_name.c_str(), table_name.c_str(), class_name.c_str(), table_name.c_str());
+                "    num_rows = mysql_num_rows(res);\n"
+                "    if (num_%s > 100 && num_%s > num_rows*1.5)\n"
+                "      printf(\"Possible problem with the ids on table '%s' (num_rows=%%d, max_id=%%d)\\n\", num_rows, num_%s);\n\n", table_name.c_str(), table_name.c_str(), table_name.c_str(), table_name.c_str());
+    
+    fprintf(fp, "    %s = (struct %s*)realloc(%s, sizeof(%s)*num_%s);\n", table_name.c_str(), class_name.c_str(), table_name.c_str(), class_name.c_str(), table_name.c_str());
     
     fprintf(fp, "    memset(%s, 0, sizeof(%s)*num_%s);\n"
                 "    int i = 0;\n"
@@ -410,7 +428,7 @@ int main(int argc, char **argv, char **envp)
                 "  }\n"
                 "  else\n"
                 "    printf(\"MySQL error for '%s': %%s\\n\", mysql_error(&mysql));\n\n"
-                "  printf(\"loaded %%d %s\\n\", num_%s);\n"
+                "  printf(\"loaded %%d/%%d %s\\n\", num_rows, num_%s);\n"
                 "}\n\n", table_name.c_str(), table_name.c_str(), table_name.c_str());
     
     ///////////////////////////////////////////////////
@@ -425,32 +443,49 @@ int main(int argc, char **argv, char **envp)
                 "  if (id >= num_%s || id <= 0) { mg_printf(conn, \"{\\\"error\\\":\\\"Invalid 'id' provided\\\"}\"); return; }\n\n"
                 , table_name.c_str(), table_name.c_str());
     
-    fprintf(fp, "  mg_printf(conn, \"{  \\n\"\n"
-                "                  \"  \\\"id\\\":%%d,\\n\"\n");
+    for (unsigned int i = 0 ; i < tables[table_name].fields.size() ; i++)
+    {
+      sField *f = &tables[table_name].fields[i];
+      if (f->type == "char")
+      {
+        fprintf(fp, "  char %s_%s[%d];\n", table_name.c_str(), f->name.c_str(), f->size*2+1);
+        fprintf(fp, "  strncpy(%s_%s, %s[id].%s, %d);\n", table_name.c_str(), f->name.c_str(), table_name.c_str(), f->name.c_str(), f->size*2+1);
+        fprintf(fp, "  for (unsigned int i = 0 ; i < sizeof(%s_%s) ; i++)\n", table_name.c_str(), f->name.c_str());
+        fprintf(fp, "    if (%s_%s[i] == '\\\"' || %s_%s[i] == '\\\\')\n", table_name.c_str(), f->name.c_str(),  table_name.c_str(), f->name.c_str());
+        fprintf(fp, "      { memmove(&%s_%s[i+1], &%s_%s[i], %d-i); %s_%s[i] = '\\\\'; i++; }\n\n", table_name.c_str(), f->name.c_str(), table_name.c_str(), f->name.c_str(), f->size*2, table_name.c_str(), f->name.c_str());
+      }
+    }
+    
+    fprintf(fp, "  mg_printf(conn, \n"
+                "    \"{  \\n\"\n"
+                "    \"  \\\"id\\\":%%d,\\n\"\n");
     for (unsigned int i = 0 ; i < tables[table_name].fields.size() ; i++)
     {
       sField *f = &tables[table_name].fields[i];
       if (f->type == "int")
-        fprintf(fp, "                  \"  \\\"%s\\\":%%d%s\\n\"\n", f->name.c_str(), ((i==tables[table_name].fields.size()-1)?"":", "));
+        fprintf(fp, "    \"  \\\"%s\\\":%%d%s\\n\"\n", f->name.c_str(), ((i==tables[table_name].fields.size()-1)?"":", "));
       else if (f->type == "float")
-        fprintf(fp, "                  \"  \\\"%s\\\":%%f%s\\n\"\n", f->name.c_str(), ((i==tables[table_name].fields.size()-1)?"":", "));
+        fprintf(fp, "    \"  \\\"%s\\\":%%f%s\\n\"\n", f->name.c_str(), ((i==tables[table_name].fields.size()-1)?"":", "));
       else if (f->type == "char")
-        fprintf(fp, "                  \"  \\\"%s\\\":\\\"%%s\\\"%s\\n\"\n", f->name.c_str(), ((i==tables[table_name].fields.size()-1)?"":", "));
+        fprintf(fp, "    \"  \\\"%s\\\":\\\"%%s\\\"%s\\n\"\n", f->name.c_str(), ((i==tables[table_name].fields.size()-1)?"":", "));
     }
-    fprintf(fp, "                  \"}\",\n");
-    fprintf(fp, "                   id,\n");
+    fprintf(fp, "    \"}\",\n");
+    fprintf(fp, "     %s[id].id,\n", table_name.c_str());
     for (unsigned int i = 0 ; i < tables[table_name].fields.size() ; i++)
     {
       sField *f = &tables[table_name].fields[i];
-      fprintf(fp, "                   %s[id].%s%s\n", table_name.c_str(), f->name.c_str(), ((i==tables[table_name].fields.size()-1)?"":", "));
+      if (f->type == "char")
+        fprintf(fp, "     %s_%s%s\n", table_name.c_str(), f->name.c_str(), ((i==tables[table_name].fields.size()-1)?"":", "));
+      else
+        fprintf(fp, "     %s[id].%s%s\n", table_name.c_str(), f->name.c_str(), ((i==tables[table_name].fields.size()-1)?"":", "));
     }
-    fprintf(fp, "                  );\n");
+    fprintf(fp, "    );\n");
     
     fprintf(fp, "}\n");
     fclose(fp);
   }
   
-  sprintf(query, "%s_test.c", database.c_str());
+  sprintf(query, "%s_web_test.c", database.c_str());
   fp = fopen(query, "w");
   fprintf(fp, "\n#include \"%s_models.h\"\n"
               "#include <stdio.h>\n"
@@ -497,7 +532,7 @@ int main(int argc, char **argv, char **envp)
   printf("%s\n", query);
   system(query);
   
-  sprintf(query, "g++ -g mongoose.o %s_models/*.o %s_test.c -lmysqlclient -L%s -pg -ldl -lpthread -o %s_test", database.c_str(), database.c_str(), location_of_libmysqlclient.c_str(), database.c_str());
+  sprintf(query, "g++ -g mongoose.o %s_models/*.o %s_web_test.c -lmysqlclient -L%s -pg -ldl -lpthread -o %s_web_test", database.c_str(), database.c_str(), location_of_libmysqlclient.c_str(), database.c_str());
   printf("%s\n", query);
   system(query);
   

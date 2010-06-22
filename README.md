@@ -10,9 +10,6 @@
       * loads all the content of your tables into ram (using the previously created C models)
       * provides a basic web interface to access that ram-cached content
 
-This isn't meant for data that changes at any decent frequency - you have to restart the application to reload your data.
-The web interface itself isn't terribly useful, I hope to add more example usage.
-
 ## Example:
 
 Say you have a database, called `ttc`
@@ -60,3 +57,9 @@ something like (assuming that was what was in your database):
       "uri":"bloor-danforth_subway" 
     }
 
+> This isn't meant for data that changes at any decent frequency - you have to restart the application to reload your data. 
+> The web interface itself isn't terribly useful, I hope to add more example usage.
+> Also, another note: keep your IDs small and together - this app allocates space from 0 to the MAX(id)+1, which means if your
+> table has only 1 row but it's ID is 900k, it will allocate space for 900k rows for that single row.  *This is working as intended* 
+
+### the ability to use routes[id] directly is the main reason anything that uses this will be *lickity split fast*.

@@ -35,7 +35,6 @@ This application will produce the following C model:
       char updated_at[20];
       char name[100];
       char uri[100];
-      int old_noun_id;
     };
     
     struct Route *routes = 0;

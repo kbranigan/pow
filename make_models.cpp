@@ -184,7 +184,7 @@ int main(int argc, char **argv, char **envp)
   num_rows = mysql_num_rows(res);
   printf("%d tables in '%s'\n", num_rows, database.c_str());
   
-  sprintf(query, "mkdir -p %s_models ; rm %s_models\\*", database.c_str(), database.c_str());
+  sprintf(query, "mkdir -p %s_models ; rm %s_models/*", database.c_str(), database.c_str());
   printf("%s\n", query);
   system(query);
   
@@ -455,7 +455,10 @@ int main(int argc, char **argv, char **envp)
       else if (f->type == "float")
         fprintf(fp, "      if (row[%d] != NULL) %s[id].%s = atof(row[%d]);\n", i+1, table_name.c_str(), f->name.c_str(), i+1);
       else if (f->type == "char")
+      {
         fprintf(fp, "      if (row[%d] != NULL) strncpy(%s[id].%s, row[%d], sizeof(%s[id].%s));\n", i+1, table_name.c_str(), f->name.c_str(), i+1, table_name.c_str(), f->name.c_str());
+        fprintf(fp, "      %s[id].%s[sizeof(%s[id].%s)] = '\\0';\n", table_name.c_str(), f->name.c_str(), table_name.c_str(), f->name.c_str());
+      }
       else
         fprintf(fp, "      /* not sure what to do with %s of type '%s' */\n", f->name.c_str(), f->type.c_str());
     }
